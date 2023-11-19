@@ -5,7 +5,11 @@ const myapp = express();
 const port = 3030;
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
-
+const nodemailer = require("nodemailer");
+const mongoose = require("mongoose");
+require("dotenv").config();
+const MongoDBStore = require("connect-mongodb-session")(session); // Import the MongoDB session store
+  
 myapp.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
@@ -13,36 +17,92 @@ myapp.listen(port, () => {
 myapp.use(express.json());
 myapp.use(express.urlencoded({ extended: true }));
 myapp.use(cors());
-
-
 myapp.set('view engine', 'ejs');
 myapp.set('views', __dirname + '/view');
 myapp.use(express.static(__dirname + '/assets'));
 
 
-myapp.use(session({
-  secret: 'your_secret_key', 
-  resave: false,
-  saveUninitialized: true,
-  cookie: { secure: false } 
-}));
+mongoose
+  .connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("Connected to MongoDB"))
+  .catch((err) => console.error("Error connecting to MongoDB:", err));
 
+const store = new MongoDBStore({
+  uri: process.env.MONGODB_URI,
+  collection: "sessions", // Collection name for sessions
+  expires: 1000 * 60 * 60 * 24 * 7, // Session expiration (1 week)
+});
 
+store.on("error", (error) => {
+  console.error("MongoDB session store error:", error);
+});
+
+//MIDDLEWARE FOR FETCHING DATA FROM ROUTE AND SENDING TO ANOTHER ROUTE
+myapp.use(
+  session({
+    secret: "your-secret-key",
+    resave: false,
+    saveUninitialized: true,
+    store: store,
+  })
+);
+
+// Middleware to prevent caching
 myapp.use((req, res, next) => {
-  const studentData = req.session.studentData; /* Your logic to retrieve student data */;
-  // Pass studentData to all EJS templates
-  res.locals.studentData = studentData;
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
+
+  if (req.session) {
+    // Reset the session timeout when the user interacts with the server
+    req.session._garbage = Date();
+    req.session.touch();
+
+    // Set the session as active
+    req.session.active = true;
+
+    // Start a timeout to set the session as inactive after 5 minutes
+    setTimeout(() => {
+      if (req.session) {
+        req.session.active = false;
+      }
+    }, 300000); // 300,000 milliseconds = 5 minutes
+  }
+
   next();
 });
 
-// Supabase configuration
-const { createClient, SupabaseClient } = require('@supabase/supabase-js');
-const supabase = createClient('https://waeqvekicdlqijxmhclw.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZXF2ZWtpY2RscWlqeG1oY2x3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE2OTUyNjMxNjIsImV4cCI6MjAxMDgzOTE2Mn0.8Ga9_qwNgeAKlqWI_xCLQPJFqGha3XfiNMxrT8_RXaM');
+//Inactivity reset
+myapp.get("/reset-inactivity", (req, res) => {
+  // Reset the session as active
+  req.session.active = true;
+  res.sendStatus(200); // Send a success response
+});
 
 
+
+const studSchema = new mongoose.Schema({
+  firstName: String,
+  lastName: String,
+  studentEmail: String,
+  password: String,
+  accountType: String,
+  gender: String,
+  gender: String,
+  gender: String,
+  gender: String,
+  gender: String,
+  isVerified: {
+    type: Boolean,
+    default: false,
+  },
+  verificationCode: String,
+  resetPasswordToken: String, // New field for reset token
+  resetPasswordExpires: Date, // New field for reset token expiration time
+});
 
 //=========GETTING===========//
 myapp.get('/', (req, res) => {
